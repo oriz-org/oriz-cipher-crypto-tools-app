@@ -1,15 +1,26 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro'
 ---
-<BaseLayout title="X.509 / CSR decoder — Oriz Crypto Tools" description="X.509 / CSR decoder — runs in your browser. Part of Oriz Crypto Tools.">
+<BaseLayout title="X.509 / CSR decoder — Oriz Crypto Tools" description="Decode X.509 certificates and CSRs in your browser. Part of Oriz Crypto Tools.">
   <article class="tool">
     <p class="back mono"><a href="/">← all tools</a></p>
     <h1 class="h1">X.509 / CSR decoder</h1>
-    <p class="status mono">coming · v0.1</p>
+    <p class="status mono ready">ready · v0.1</p>
     <p class="lede">
-      This feature is on the v0.1 roadmap. The page exists so we can iterate on
-      the design and copy in parallel; the implementation lands next sprint.
+      Paste a PEM-encoded X.509 certificate or Certificate Signing Request to
+      see its subject, issuer, validity window, signature algorithm, and SAN
+      extensions. ASN.1/DER is parsed entirely client-side; nothing is uploaded.
     </p>
+
+    <div class="tool-ui">
+      <div class="row">
+        <label for="cert-input">PEM input</label>
+        <textarea id="cert-input" class="io" rows="10" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea>
+      </div>
+      <button id="cert-decode" class="btn">Decode</button>
+      <div id="cert-error" class="error-msg" style="display:none;"></div>
+      <pre id="cert-output" class="output mono" style="display:none;"></pre>
+    </div>
   </article>
 </BaseLayout>
 
@@ -19,20 +30,256 @@ import BaseLayout from '~/layouts/BaseLayout.astro'
   .back a { color: var(--muted); text-decoration: none; }
   .back a:hover { color: var(--ink); }
   .h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(1.75rem, 4vw, 2.5rem); margin: 0 0 0.5rem; line-height: 1.1; }
-  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 2rem; }
+  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 1rem; }
   .status.ready { color: var(--accent); }
-  .lede { font-size: 1rem; color: var(--muted); line-height: 1.6; max-width: 56ch; }
-  .placeholder { max-width: 60ch; }
-  .placeholder p { color: var(--muted); margin: 0 0 1rem; }
-  .io {
-    width: 100%;
-    padding: 1rem;
-    background: var(--paper-2);
-    border: 1px solid var(--rule);
-    color: var(--ink);
-    font-family: var(--font-mono);
-    font-size: 0.875rem;
-    resize: vertical;
-  }
-  .hint { font-size: 11px; color: var(--muted); margin-top: 0.75rem; }
+  .lede { font-size: 1rem; color: var(--muted); line-height: 1.6; max-width: 60ch; margin: 0 0 2rem; }
+  .tool-ui { max-width: 72ch; display: flex; flex-direction: column; gap: 1rem; }
+  .row { display: flex; flex-direction: column; gap: 0.4rem; }
+  label { font-size: 0.8125rem; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.05em; }
+  .io { width: 100%; padding: 0.875rem 1rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink); font-family: var(--font-mono); font-size: 0.8125rem; resize: vertical; box-sizing: border-box; }
+  .io:focus { outline: 1px solid var(--accent); }
+  .btn { padding: 0.5rem 1.25rem; background: var(--accent); border: none; color: #fff; font-family: var(--font-mono); font-size: 0.8125rem; cursor: pointer; letter-spacing: 0.04em; align-self: flex-start; }
+  .btn:hover { opacity: 0.85; }
+  .error-msg { color: #b00020; font-family: var(--font-mono); font-size: 0.8125rem; padding: 0.5rem 0.75rem; background: rgba(176,0,32,0.08); border-left: 2px solid #b00020; }
+  .output { padding: 1rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink); font-family: var(--font-mono); font-size: 0.8125rem; white-space: pre-wrap; word-break: break-all; margin: 0; }
 </style>
+
+<script>
+  // --- Minimal ASN.1 DER parser focused on X.509 + PKCS#10 ---
+  type ASN1 = { tag: number; len: number; start: number; end: number; body: Uint8Array; children?: ASN1[] };
+
+  function decodeLen(buf: Uint8Array, off: number): { len: number; hdr: number } {
+    const first = buf[off];
+    if ((first & 0x80) === 0) return { len: first, hdr: 1 };
+    const n = first & 0x7f;
+    let len = 0;
+    for (let i = 0; i < n; i++) len = (len << 8) | buf[off + 1 + i];
+    return { len, hdr: 1 + n };
+  }
+
+  function parse(buf: Uint8Array, off = 0, endLimit?: number): ASN1[] {
+    const out: ASN1[] = [];
+    const end = endLimit ?? buf.length;
+    while (off < end) {
+      const tag = buf[off];
+      const { len, hdr } = decodeLen(buf, off + 1);
+      const bodyStart = off + 1 + hdr;
+      const bodyEnd = bodyStart + len;
+      const node: ASN1 = { tag, len, start: off, end: bodyEnd, body: buf.subarray(bodyStart, bodyEnd) };
+      if ((tag & 0x20) !== 0) node.children = parse(buf, bodyStart, bodyEnd);
+      out.push(node);
+      off = bodyEnd;
+    }
+    return out;
+  }
+
+  // OID encoding/decoding
+  function oidToString(b: Uint8Array): string {
+    if (b.length === 0) return '';
+    const first = b[0];
+    const parts = [Math.floor(first / 40), first % 40];
+    let v = 0;
+    for (let i = 1; i < b.length; i++) {
+      v = (v << 7) | (b[i] & 0x7f);
+      if ((b[i] & 0x80) === 0) { parts.push(v); v = 0; }
+    }
+    return parts.join('.');
+  }
+
+  const OID_NAMES: Record<string, string> = {
+    '2.5.4.3': 'CN', '2.5.4.6': 'C', '2.5.4.7': 'L', '2.5.4.8': 'ST',
+    '2.5.4.10': 'O', '2.5.4.11': 'OU', '1.2.840.113549.1.9.1': 'emailAddress',
+    '1.2.840.113549.1.1.1': 'RSA',
+    '1.2.840.113549.1.1.5': 'sha1WithRSA',
+    '1.2.840.113549.1.1.11': 'sha256WithRSA',
+    '1.2.840.113549.1.1.12': 'sha384WithRSA',
+    '1.2.840.113549.1.1.13': 'sha512WithRSA',
+    '1.2.840.10045.2.1': 'EC',
+    '1.2.840.10045.4.3.2': 'ecdsa-sha256',
+    '1.2.840.10045.4.3.3': 'ecdsa-sha384',
+    '1.2.840.10045.4.3.4': 'ecdsa-sha512',
+    '1.3.101.112': 'Ed25519',
+    '2.5.29.17': 'subjectAltName',
+    '2.5.29.19': 'basicConstraints',
+    '2.5.29.15': 'keyUsage',
+    '2.5.29.37': 'extKeyUsage',
+    '1.2.840.10045.3.1.7': 'P-256',
+    '1.3.132.0.34': 'P-384',
+    '1.3.132.0.35': 'P-521',
+  };
+
+  function decodeName(node: ASN1): string {
+    // SEQUENCE OF SET OF SEQUENCE { OID, value }
+    const parts: string[] = [];
+    for (const rdn of (node.children || [])) {
+      for (const attr of (rdn.children || [])) {
+        const kids = attr.children || [];
+        if (kids.length < 2) continue;
+        const oid = oidToString(kids[0].body);
+        const name = OID_NAMES[oid] || oid;
+        const val = new TextDecoder().decode(kids[1].body);
+        parts.push(`${name}=${val}`);
+      }
+    }
+    return parts.join(', ');
+  }
+
+  function decodeTime(node: ASN1): string {
+    const s = new TextDecoder().decode(node.body);
+    // UTCTime YYMMDDHHMMSSZ or GeneralizedTime YYYYMMDDHHMMSSZ
+    let yyyy: string, rest: string;
+    if (node.tag === 0x17) { // UTCTime
+      const yy = parseInt(s.slice(0, 2), 10);
+      yyyy = String(yy >= 50 ? 1900 + yy : 2000 + yy);
+      rest = s.slice(2);
+    } else {
+      yyyy = s.slice(0, 4); rest = s.slice(4);
+    }
+    const mm = rest.slice(0, 2), dd = rest.slice(2, 4), hh = rest.slice(4, 6), mi = rest.slice(6, 8), ss = rest.slice(8, 10);
+    return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss} UTC`;
+  }
+
+  function decodeSAN(extBody: Uint8Array): string[] {
+    // extBody is the OCTET STRING content holding a SEQUENCE of GeneralName
+    const inner = parse(extBody)[0];
+    if (!inner || !inner.children) return [];
+    const out: string[] = [];
+    for (const gn of inner.children) {
+      const tag = gn.tag & 0x1f;
+      const v = new TextDecoder().decode(gn.body);
+      switch (tag) {
+        case 1: out.push(`email:${v}`); break;
+        case 2: out.push(`DNS:${v}`); break;
+        case 6: out.push(`URI:${v}`); break;
+        case 7: {
+          if (gn.body.length === 4) out.push(`IP:${gn.body.join('.')}`);
+          else out.push(`IP:(${gn.body.length} bytes)`);
+          break;
+        }
+        default: out.push(`type${tag}:${v}`);
+      }
+    }
+    return out;
+  }
+
+  function pemToDer(pem: string): { type: string; der: Uint8Array } {
+    const m = /-----BEGIN ([A-Z0-9 ]+)-----\s*([A-Za-z0-9+/=\s]+?)\s*-----END \1-----/.exec(pem);
+    if (!m) throw new Error('No PEM block found');
+    const type = m[1].trim();
+    const b64 = m[2].replace(/\s+/g, '');
+    const bin = atob(b64);
+    const der = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) der[i] = bin.charCodeAt(i);
+    return { type, der };
+  }
+
+  function hexFingerprint(b: Uint8Array): string {
+    return Array.from(b).map(x => x.toString(16).padStart(2, '0')).join(':').toUpperCase();
+  }
+
+  async function decode(pem: string): Promise<string> {
+    const { type, der } = pemToDer(pem);
+    const top = parse(der)[0];
+    if (!top || !top.children) throw new Error('Empty ASN.1');
+    const lines: string[] = [];
+    lines.push(`Type: ${type}`);
+
+    if (/CERTIFICATE REQUEST/.test(type)) {
+      // PKCS#10 CSR
+      const tbs = top.children[0];
+      const sigAlg = top.children[1];
+      const kids = tbs.children!;
+      // version, subject, subjectPKInfo, attributes[0]
+      const subject = decodeName(kids[1]);
+      const spkiAlg = kids[2].children![0].children![0];
+      const algOid = OID_NAMES[oidToString(spkiAlg.body)] || oidToString(spkiAlg.body);
+      const sigOid = OID_NAMES[oidToString(sigAlg.children![0].body)] || oidToString(sigAlg.children![0].body);
+      lines.push(`Subject: ${subject}`);
+      lines.push(`Public key: ${algOid}`);
+      lines.push(`Signature alg: ${sigOid}`);
+      // SAN may live inside attributes
+      const sha256 = await crypto.subtle.digest('SHA-256', der);
+      lines.push(`SHA-256 fingerprint: ${hexFingerprint(new Uint8Array(sha256))}`);
+      return lines.join('\n');
+    }
+
+    // X.509 Certificate
+    const tbs = top.children[0];
+    const sigAlg = top.children[1];
+    const kids = tbs.children!;
+    // version[0] is optional EXPLICIT, otherwise default v1
+    let idx = 0;
+    if ((kids[0].tag & 0xe0) === 0xa0) idx++;
+    const serial = kids[idx++];
+    const _innerSigAlg = kids[idx++]; void _innerSigAlg;
+    const issuer = decodeName(kids[idx++]);
+    const validity = kids[idx++];
+    const subject = decodeName(kids[idx++]);
+    const spki = kids[idx++];
+
+    const notBefore = decodeTime(validity.children![0]);
+    const notAfter = decodeTime(validity.children![1]);
+
+    const algNode = spki.children![0].children![0];
+    const algOid = oidToString(algNode.body);
+    const algName = OID_NAMES[algOid] || algOid;
+
+    // For EC, the second element of AlgorithmIdentifier is the curve OID
+    let curveStr = '';
+    if (algName === 'EC' && spki.children![0].children!.length > 1) {
+      const curveOid = oidToString(spki.children![0].children![1].body);
+      curveStr = ' (' + (OID_NAMES[curveOid] || curveOid) + ')';
+    }
+
+    const sigOid = oidToString(sigAlg.children![0].body);
+    const sigName = OID_NAMES[sigOid] || sigOid;
+
+    lines.push(`Subject: ${subject}`);
+    lines.push(`Issuer:  ${issuer}`);
+    lines.push(`Serial:  ${hexFingerprint(serial.body).replace(/:/g, '')}`);
+    lines.push(`Valid:   ${notBefore}  →  ${notAfter}`);
+    lines.push(`Public key: ${algName}${curveStr}`);
+    lines.push(`Signature alg: ${sigName}`);
+
+    // Extensions live in kids[idx] inside [3] EXPLICIT
+    for (let i = idx; i < kids.length; i++) {
+      if ((kids[i].tag & 0xe0) === 0xa0 && (kids[i].tag & 0x1f) === 3) {
+        const exts = kids[i].children![0].children || [];
+        for (const ext of exts) {
+          const extOid = oidToString(ext.children![0].body);
+          if (extOid === '2.5.29.17') {
+            const sanOctet = ext.children![ext.children!.length - 1];
+            const sans = decodeSAN(sanOctet.body);
+            if (sans.length) lines.push(`SAN: ${sans.join(', ')}`);
+          }
+        }
+      }
+    }
+
+    const sha256 = await crypto.subtle.digest('SHA-256', der);
+    const sha1 = await crypto.subtle.digest('SHA-1', der);
+    lines.push('');
+    lines.push(`SHA-256 fingerprint: ${hexFingerprint(new Uint8Array(sha256))}`);
+    lines.push(`SHA-1   fingerprint: ${hexFingerprint(new Uint8Array(sha1))}`);
+
+    return lines.join('\n');
+  }
+
+  const $ = (id: string) => document.getElementById(id)!;
+  const err = $('cert-error'), out = $('cert-output');
+
+  $('cert-decode').addEventListener('click', async () => {
+    (err as HTMLElement).style.display = 'none';
+    (out as HTMLElement).style.display = 'none';
+    const pem = ($('cert-input') as HTMLTextAreaElement).value.trim();
+    if (!pem) { err.textContent = 'Paste a PEM block'; (err as HTMLElement).style.display = 'block'; return; }
+    try {
+      const text = await decode(pem);
+      out.textContent = text;
+      (out as HTMLElement).style.display = 'block';
+    } catch (e) {
+      err.textContent = 'Decode failed: ' + (e as Error).message;
+      (err as HTMLElement).style.display = 'block';
+    }
+  });
+</script>

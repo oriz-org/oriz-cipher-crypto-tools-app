@@ -1,15 +1,41 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro'
 ---
-<BaseLayout title="HMAC-SHA256 / 512 — Oriz Crypto Tools" description="HMAC-SHA256 / 512 — runs in your browser. Part of Oriz Crypto Tools.">
+<BaseLayout title="HMAC-SHA256 / 512 — Oriz Crypto Tools" description="HMAC with SHA-1/256/384/512 — runs in your browser. Part of Oriz Crypto Tools.">
   <article class="tool">
     <p class="back mono"><a href="/">← all tools</a></p>
     <h1 class="h1">HMAC-SHA256 / 512</h1>
-    <p class="status mono">coming · v0.1</p>
-    <p class="lede">
-      This feature is on the v0.1 roadmap. The page exists so we can iterate on
-      the design and copy in parallel; the implementation lands next sprint.
-    </p>
+    <p class="status mono ready">ready · v0.1</p>
+    <p class="lede">Hash-based Message Authentication Code via Web Crypto. Both message and key stay in the browser.</p>
+
+    <div class="tool-ui">
+      <div class="row">
+        <label for="hmac-key">Key (UTF-8)</label>
+        <input id="hmac-key" type="text" class="text-input" placeholder="Secret key…" />
+      </div>
+      <div class="row">
+        <label for="hmac-input">Message</label>
+        <textarea id="hmac-input" class="io" placeholder="Type or paste the message…" rows="5"></textarea>
+      </div>
+      <div class="algo-row">
+        <label>Algorithm</label>
+        <div class="algo-btns">
+          <button class="algo-btn active" data-algo="SHA-256">SHA-256</button>
+          <button class="algo-btn" data-algo="SHA-1">SHA-1</button>
+          <button class="algo-btn" data-algo="SHA-384">SHA-384</button>
+          <button class="algo-btn" data-algo="SHA-512">SHA-512</button>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button id="hmac-run" class="btn">Compute HMAC</button>
+      </div>
+      <div id="hmac-error" class="error-msg" style="display:none;"></div>
+      <div class="row">
+        <label for="hmac-output">Output (hex)</label>
+        <textarea id="hmac-output" class="io" readonly rows="3" placeholder="HMAC appears here…"></textarea>
+        <button class="btn btn-copy" data-copy="hmac-output">Copy</button>
+      </div>
+    </div>
   </article>
 </BaseLayout>
 
@@ -19,20 +45,73 @@ import BaseLayout from '~/layouts/BaseLayout.astro'
   .back a { color: var(--muted); text-decoration: none; }
   .back a:hover { color: var(--ink); }
   .h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(1.75rem, 4vw, 2.5rem); margin: 0 0 0.5rem; line-height: 1.1; }
-  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 2rem; }
+  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 1rem; }
   .status.ready { color: var(--accent); }
-  .lede { font-size: 1rem; color: var(--muted); line-height: 1.6; max-width: 56ch; }
-  .placeholder { max-width: 60ch; }
-  .placeholder p { color: var(--muted); margin: 0 0 1rem; }
-  .io {
-    width: 100%;
-    padding: 1rem;
-    background: var(--paper-2);
-    border: 1px solid var(--rule);
-    color: var(--ink);
-    font-family: var(--font-mono);
-    font-size: 0.875rem;
-    resize: vertical;
-  }
-  .hint { font-size: 11px; color: var(--muted); margin-top: 0.75rem; }
+  .lede { font-size: 1rem; color: var(--muted); line-height: 1.6; max-width: 56ch; margin: 0 0 2rem; }
+  .tool-ui { max-width: 64ch; display: flex; flex-direction: column; gap: 1.25rem; }
+  .row { display: flex; flex-direction: column; gap: 0.4rem; }
+  label { font-size: 0.8125rem; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.05em; }
+  .io, .text-input { width: 100%; padding: 0.875rem 1rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink); font-family: var(--font-mono); font-size: 0.875rem; }
+  .io { resize: vertical; }
+  .text-input { padding: 0.5rem 0.75rem; }
+  .algo-row { display: flex; flex-direction: column; gap: 0.5rem; }
+  .algo-btns { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .algo-btn { padding: 0.375rem 0.875rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--muted); font-family: var(--font-mono); font-size: 0.8125rem; cursor: pointer; }
+  .algo-btn.active { border-color: var(--accent); color: var(--accent); }
+  .btn-row { display: flex; gap: 0.5rem; }
+  .btn { padding: 0.5rem 1.25rem; background: var(--accent); border: none; color: #000; font-family: var(--font-mono); font-size: 0.8125rem; cursor: pointer; letter-spacing: 0.04em; }
+  .btn:hover { opacity: 0.85; }
+  .btn-copy { margin-top: 0.5rem; align-self: flex-start; padding: 0.4rem 0.875rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--muted); font-family: var(--font-mono); font-size: 0.75rem; cursor: pointer; }
+  .error-msg { color: #f87171; font-family: var(--font-mono); font-size: 0.8125rem; padding: 0.5rem 0.75rem; background: rgba(248,113,113,0.08); border-left: 2px solid #f87171; }
 </style>
+
+<script>
+  let selectedAlgo = 'SHA-256';
+
+  document.querySelectorAll('.algo-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.algo-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedAlgo = (btn as HTMLButtonElement).dataset.algo!;
+    });
+  });
+
+  document.getElementById('hmac-run')!.addEventListener('click', async () => {
+    const errEl = document.getElementById('hmac-error')!;
+    errEl.style.display = 'none';
+    const keyStr = (document.getElementById('hmac-key') as HTMLInputElement).value;
+    const msg = (document.getElementById('hmac-input') as HTMLTextAreaElement).value;
+    if (!keyStr) {
+      errEl.textContent = 'Key is required.';
+      errEl.style.display = 'block';
+      return;
+    }
+    try {
+      const enc = new TextEncoder();
+      const key = await crypto.subtle.importKey(
+        'raw',
+        enc.encode(keyStr),
+        { name: 'HMAC', hash: selectedAlgo },
+        false,
+        ['sign']
+      );
+      const sig = await crypto.subtle.sign('HMAC', key, enc.encode(msg));
+      const hex = Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('');
+      (document.getElementById('hmac-output') as HTMLTextAreaElement).value = hex;
+    } catch (e) {
+      errEl.textContent = 'HMAC failed: ' + (e as Error).message;
+      errEl.style.display = 'block';
+    }
+  });
+
+  document.querySelectorAll('.btn-copy').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = (btn as HTMLButtonElement).dataset.copy!;
+      const val = (document.getElementById(id) as HTMLTextAreaElement).value;
+      navigator.clipboard.writeText(val).then(() => {
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+      });
+    });
+  });
+</script>

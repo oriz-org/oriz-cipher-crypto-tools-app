@@ -1,15 +1,52 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro'
 ---
-<BaseLayout title="SSH keypair generator — Oriz Crypto Tools" description="SSH keypair generator — runs in your browser. Part of Oriz Crypto Tools.">
+<BaseLayout title="SSH keypair generator — Oriz Crypto Tools" description="Generate Ed25519 or RSA SSH keypairs in your browser. Part of Oriz Crypto Tools.">
   <article class="tool">
     <p class="back mono"><a href="/">← all tools</a></p>
     <h1 class="h1">SSH keypair generator</h1>
-    <p class="status mono">coming · v0.1</p>
+    <p class="status mono ready">ready · v0.1</p>
     <p class="lede">
-      This feature is on the v0.1 roadmap. The page exists so we can iterate on
-      the design and copy in parallel; the implementation lands next sprint.
+      Generate an Ed25519 (recommended) or RSA SSH keypair locally. The private
+      key is emitted in OpenSSH format (<code>-----BEGIN OPENSSH PRIVATE KEY-----</code>),
+      the public key in the single-line <code>ssh-ed25519 AAAA…</code> /
+      <code>ssh-rsa AAAA…</code> format suitable for <code>~/.ssh/authorized_keys</code>.
+      Keys never leave the page.
     </p>
+
+    <div class="tool-ui">
+      <div class="row">
+        <label for="ssh-type">Algorithm</label>
+        <select id="ssh-type" class="io io-sm">
+          <option value="ed25519">Ed25519 (recommended)</option>
+          <option value="rsa">RSA</option>
+        </select>
+      </div>
+      <div class="row" id="ssh-bits-row">
+        <label for="ssh-bits">RSA modulus size</label>
+        <select id="ssh-bits" class="io io-sm">
+          <option value="2048">2048-bit</option>
+          <option value="3072" selected>3072-bit</option>
+          <option value="4096">4096-bit</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="ssh-comment">Comment (appended to public key)</label>
+        <input id="ssh-comment" class="io" type="text" autocomplete="off" placeholder="user@host" />
+      </div>
+      <button id="ssh-gen" class="btn">Generate keypair</button>
+      <div id="ssh-error" class="error-msg" style="display:none;"></div>
+      <div class="row">
+        <label for="ssh-pub">Public key (authorized_keys line)</label>
+        <textarea id="ssh-pub" class="io" rows="3" readonly></textarea>
+        <button class="btn btn-copy" data-copy="ssh-pub">Copy public key</button>
+      </div>
+      <div class="row">
+        <label for="ssh-priv">Private key (OpenSSH)</label>
+        <textarea id="ssh-priv" class="io" rows="12" readonly></textarea>
+        <button class="btn btn-copy" data-copy="ssh-priv">Copy private key</button>
+      </div>
+    </div>
   </article>
 </BaseLayout>
 
@@ -19,20 +56,229 @@ import BaseLayout from '~/layouts/BaseLayout.astro'
   .back a { color: var(--muted); text-decoration: none; }
   .back a:hover { color: var(--ink); }
   .h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(1.75rem, 4vw, 2.5rem); margin: 0 0 0.5rem; line-height: 1.1; }
-  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 2rem; }
+  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 1rem; }
   .status.ready { color: var(--accent); }
-  .lede { font-size: 1rem; color: var(--muted); line-height: 1.6; max-width: 56ch; }
-  .placeholder { max-width: 60ch; }
-  .placeholder p { color: var(--muted); margin: 0 0 1rem; }
-  .io {
-    width: 100%;
-    padding: 1rem;
-    background: var(--paper-2);
-    border: 1px solid var(--rule);
-    color: var(--ink);
-    font-family: var(--font-mono);
-    font-size: 0.875rem;
-    resize: vertical;
-  }
-  .hint { font-size: 11px; color: var(--muted); margin-top: 0.75rem; }
+  .lede { font-size: 1rem; color: var(--muted); line-height: 1.6; max-width: 64ch; margin: 0 0 2rem; }
+  .tool-ui { max-width: 72ch; display: flex; flex-direction: column; gap: 1rem; }
+  .row { display: flex; flex-direction: column; gap: 0.4rem; }
+  label { font-size: 0.8125rem; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.05em; }
+  .io { width: 100%; padding: 0.625rem 0.875rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink); font-family: var(--font-mono); font-size: 0.875rem; resize: vertical; box-sizing: border-box; }
+  .io-sm { max-width: 28ch; }
+  .io:focus { outline: 1px solid var(--accent); }
+  .btn { padding: 0.5rem 1.25rem; background: var(--accent); border: none; color: #fff; font-family: var(--font-mono); font-size: 0.8125rem; cursor: pointer; letter-spacing: 0.04em; align-self: flex-start; }
+  .btn:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.6; cursor: progress; }
+  .btn-copy { margin-top: 0.5rem; align-self: flex-start; padding: 0.4rem 0.875rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--muted); font-family: var(--font-mono); font-size: 0.75rem; cursor: pointer; }
+  .btn-copy:hover { color: var(--ink); }
+  .error-msg { color: #b00020; font-family: var(--font-mono); font-size: 0.8125rem; padding: 0.5rem 0.75rem; background: rgba(176,0,32,0.08); border-left: 2px solid #b00020; }
 </style>
+
+<script>
+  // SSH-format encoders.
+  // RSA: Web Crypto generates the keypair, we re-pack into OpenSSH wire format.
+  // Ed25519: Web Crypto in modern browsers supports it; we re-pack likewise.
+
+  function concat(...chunks: Uint8Array[]): Uint8Array {
+    let n = 0; for (const c of chunks) n += c.length;
+    const out = new Uint8Array(n);
+    let o = 0; for (const c of chunks) { out.set(c, o); o += c.length; }
+    return out;
+  }
+  function u32be(n: number): Uint8Array {
+    return new Uint8Array([(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff]);
+  }
+  function sshString(b: Uint8Array): Uint8Array { return concat(u32be(b.length), b); }
+  function sshMpint(b: Uint8Array): Uint8Array {
+    // strip leading zeros
+    let i = 0; while (i < b.length - 1 && b[i] === 0) i++;
+    let s = b.subarray(i);
+    if (s[0] & 0x80) s = concat(new Uint8Array([0]), s); // prepend zero if high bit set
+    return sshString(s);
+  }
+  function b64(b: Uint8Array): string {
+    let s = ''; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+    return btoa(s);
+  }
+  function wrap(s: string, n = 70): string {
+    let o = ''; for (let i = 0; i < s.length; i += n) o += s.slice(i, i + n) + '\n';
+    return o;
+  }
+
+  // ASN.1 DER minimal parser for RSA PKCS#8 export
+  function decodeLen(buf: Uint8Array, off: number): { len: number; hdr: number } {
+    const first = buf[off];
+    if ((first & 0x80) === 0) return { len: first, hdr: 1 };
+    const n = first & 0x7f;
+    let len = 0;
+    for (let i = 0; i < n; i++) len = (len << 8) | buf[off + 1 + i];
+    return { len, hdr: 1 + n };
+  }
+  type Node = { tag: number; body: Uint8Array; children?: Node[] };
+  function parseDER(buf: Uint8Array, off = 0, end?: number): Node[] {
+    const out: Node[] = []; const e = end ?? buf.length;
+    while (off < e) {
+      const tag = buf[off]; const { len, hdr } = decodeLen(buf, off + 1);
+      const bs = off + 1 + hdr, be = bs + len;
+      const node: Node = { tag, body: buf.subarray(bs, be) };
+      if ((tag & 0x20) !== 0 || tag === 0x30 || tag === 0x31 || tag === 0xa0 || tag === 0xa1) {
+        try { node.children = parseDER(buf, bs, be); } catch { /* ignore */ }
+      }
+      out.push(node);
+      off = be;
+    }
+    return out;
+  }
+
+  // Decode an unsigned integer node body
+  function intBytes(n: Node): Uint8Array {
+    let i = 0; while (i < n.body.length - 1 && n.body[i] === 0 && (n.body[i + 1] & 0x80) === 0) i++;
+    return n.body.subarray(i);
+  }
+
+  async function generateRSA(bits: number, comment: string): Promise<{ pub: string; priv: string }> {
+    const kp = await crypto.subtle.generateKey(
+      { name: 'RSASSA-PKCS1-v1_5', modulusLength: bits, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+      true, ['sign', 'verify']
+    );
+    const pkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', kp.privateKey));
+    const spki = new Uint8Array(await crypto.subtle.exportKey('spki', kp.publicKey));
+
+    // Parse SPKI to get RSA modulus n and exponent e
+    const top = parseDER(spki)[0];                       // SEQ
+    const bitStr = top.children![1];                     // BIT STRING
+    // BIT STRING body: 1 unused-bits byte, then DER of RSAPublicKey
+    const rsaPubDer = bitStr.body.subarray(1);
+    const rsaPub = parseDER(rsaPubDer)[0];               // SEQ { n, e }
+    const n = intBytes(rsaPub.children![0]);
+    const e = intBytes(rsaPub.children![1]);
+
+    // Parse PKCS8 to get all RSA private components
+    const pk8 = parseDER(pkcs8)[0];                      // SEQ
+    const privOct = pk8.children![2];                    // OCTET STRING
+    const rsaPriv = parseDER(privOct.body)[0];           // SEQ { ver, n, e, d, p, q, dp, dq, qinv }
+    const c = rsaPriv.children!;
+    const dN = intBytes(c[1]); const dE = intBytes(c[2]); const dD = intBytes(c[3]);
+    const dP = intBytes(c[4]); const dQ = intBytes(c[5]); const dIQ = intBytes(c[8]);
+
+    // SSH public key blob: ssh-rsa || e || n
+    const algName = new TextEncoder().encode('ssh-rsa');
+    const pubBlob = concat(sshString(algName), sshMpint(e), sshMpint(n));
+    const pubLine = `ssh-rsa ${b64(pubBlob)}${comment ? ' ' + comment : ''}`;
+
+    // OpenSSH private key format
+    const priv = buildOpenSSHPrivate('ssh-rsa', pubBlob, () => {
+      // private section: n, e, d, iqmp, p, q
+      return concat(sshMpint(dN), sshMpint(dE), sshMpint(dD), sshMpint(dIQ), sshMpint(dP), sshMpint(dQ));
+    }, comment);
+
+    return { pub: pubLine, priv };
+  }
+
+  async function generateEd25519(comment: string): Promise<{ pub: string; priv: string }> {
+    let kp: CryptoKeyPair;
+    try {
+      kp = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
+    } catch {
+      throw new Error('This browser does not expose Ed25519 via Web Crypto. Use Chrome 137+, Firefox 130+, or Safari 17+, or pick RSA.');
+    }
+    const pkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', kp.privateKey));
+    const spki = new Uint8Array(await crypto.subtle.exportKey('spki', kp.publicKey));
+
+    // SPKI for Ed25519: SEQ { SEQ { OID }, BIT STRING(unused=0, 32 bytes pub) }
+    const spkiTop = parseDER(spki)[0];
+    const bitStr = spkiTop.children![1];
+    const pub32 = bitStr.body.subarray(1); // 32 bytes
+
+    // PKCS8 for Ed25519: SEQ { INT 0, SEQ{OID}, OCTET STRING(OCTET STRING(32-byte seed)) }
+    const pk8 = parseDER(pkcs8)[0];
+    const outerOct = pk8.children![2];
+    // Inner is an OCTET STRING wrapping the 32-byte seed
+    const innerOct = parseDER(outerOct.body)[0];
+    const seed = innerOct.body; // 32 bytes
+    if (seed.length !== 32) throw new Error('Unexpected Ed25519 seed length: ' + seed.length);
+
+    const algName = new TextEncoder().encode('ssh-ed25519');
+    const pubBlob = concat(sshString(algName), sshString(pub32));
+    const pubLine = `ssh-ed25519 ${b64(pubBlob)}${comment ? ' ' + comment : ''}`;
+
+    // OpenSSH ed25519 private section: pub(32) || seed||pub (64)
+    const priv = buildOpenSSHPrivate('ssh-ed25519', pubBlob, () => {
+      const skPlusPk = concat(seed, pub32);
+      return concat(sshString(pub32), sshString(skPlusPk));
+    }, comment);
+
+    return { pub: pubLine, priv };
+  }
+
+  function buildOpenSSHPrivate(algName: string, pubBlob: Uint8Array, keyPartsFn: () => Uint8Array, comment: string): string {
+    const magic = new TextEncoder().encode('openssh-key-v1\0');
+    const ciphername = new TextEncoder().encode('none');
+    const kdfname = new TextEncoder().encode('none');
+    const kdfopts = new Uint8Array(0);
+
+    const checkint = crypto.getRandomValues(new Uint8Array(4));
+    const commentBytes = new TextEncoder().encode(comment || '');
+    const keyParts = keyPartsFn();
+
+    let privSection = concat(checkint, checkint, sshString(algName === 'ssh-ed25519' ? new TextEncoder().encode('ssh-ed25519') : new TextEncoder().encode('ssh-rsa')));
+    privSection = concat(privSection, keyParts, sshString(commentBytes));
+    // pad to 8-byte boundary
+    const padLen = (8 - (privSection.length % 8)) % 8;
+    const pad = new Uint8Array(padLen);
+    for (let i = 0; i < padLen; i++) pad[i] = i + 1;
+    privSection = concat(privSection, pad);
+
+    const blob = concat(
+      magic,
+      sshString(ciphername),
+      sshString(kdfname),
+      sshString(kdfopts),
+      u32be(1), // number of keys
+      sshString(pubBlob),
+      sshString(privSection),
+    );
+    return `-----BEGIN OPENSSH PRIVATE KEY-----\n${wrap(b64(blob))}-----END OPENSSH PRIVATE KEY-----\n`;
+  }
+
+  const $ = (id: string) => document.getElementById(id)!;
+  const err = $('ssh-error');
+  function showError(m: string) { err.textContent = m; (err as HTMLElement).style.display = 'block'; }
+  function hideError() { (err as HTMLElement).style.display = 'none'; }
+
+  function syncBitsRow() {
+    const isRSA = ($('ssh-type') as HTMLSelectElement).value === 'rsa';
+    ($('ssh-bits-row') as HTMLElement).style.display = isRSA ? '' : 'none';
+  }
+  $('ssh-type').addEventListener('change', syncBitsRow);
+  syncBitsRow();
+
+  $('ssh-gen').addEventListener('click', async () => {
+    hideError();
+    const btn = $('ssh-gen') as HTMLButtonElement;
+    const type = ($('ssh-type') as HTMLSelectElement).value;
+    const bits = parseInt(($('ssh-bits') as HTMLSelectElement).value, 10);
+    const comment = ($('ssh-comment') as HTMLInputElement).value.trim();
+    btn.disabled = true; btn.textContent = 'Generating…';
+    try {
+      const r = type === 'rsa' ? await generateRSA(bits, comment) : await generateEd25519(comment);
+      ($('ssh-pub') as HTMLTextAreaElement).value = r.pub;
+      ($('ssh-priv') as HTMLTextAreaElement).value = r.priv;
+    } catch (e) {
+      showError((e as Error).message);
+    }
+    btn.disabled = false; btn.textContent = 'Generate keypair';
+  });
+
+  document.querySelectorAll('.btn-copy').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = (btn as HTMLButtonElement).dataset.copy!;
+      const val = (document.getElementById(id) as HTMLTextAreaElement).value;
+      if (!val) return;
+      const origText = btn.textContent;
+      navigator.clipboard.writeText(val).then(() => {
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = origText; }, 1500);
+      });
+    });
+  });
+</script>

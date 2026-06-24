@@ -1,15 +1,37 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro'
 ---
-<BaseLayout title="UUID — Oriz Crypto Tools" description="UUID — runs in your browser. Part of Oriz Crypto Tools.">
+<BaseLayout title="UUID generator — Oriz Crypto Tools" description="Generate UUID v4 and v7 identifiers — runs in your browser. Part of Oriz Crypto Tools.">
   <article class="tool">
     <p class="back mono"><a href="/">← all tools</a></p>
-    <h1 class="h1">UUID</h1>
-    <p class="status mono">coming · v0.1</p>
-    <p class="lede">
-      This feature is on the v0.1 roadmap. The page exists so we can iterate on
-      the design and copy in parallel; the implementation lands next sprint.
-    </p>
+    <h1 class="h1">UUID generator</h1>
+    <p class="status mono ready">ready · v0.1</p>
+    <p class="lede">RFC 4122 v4 (random) and draft v7 (time-ordered). Generated locally with <code>crypto.getRandomValues</code>.</p>
+
+    <div class="tool-ui">
+      <div class="options-row">
+        <div class="opt">
+          <label for="uuid-version">Version</label>
+          <select id="uuid-version" class="select-input">
+            <option value="v4" selected>v4 — random</option>
+            <option value="v7">v7 — time-ordered</option>
+          </select>
+        </div>
+        <div class="opt">
+          <label for="uuid-count">Count</label>
+          <input id="uuid-count" type="number" class="text-input" value="1" min="1" max="500" />
+        </div>
+      </div>
+      <div class="btn-row">
+        <button id="uuid-gen" class="btn">Generate</button>
+      </div>
+      <div id="uuid-error" class="error-msg" style="display:none;"></div>
+      <div class="row">
+        <label for="uuid-output">Output</label>
+        <textarea id="uuid-output" class="io" readonly rows="6" placeholder="UUIDs appear here…"></textarea>
+        <button class="btn btn-copy" data-copy="uuid-output">Copy</button>
+      </div>
+    </div>
   </article>
 </BaseLayout>
 
@@ -19,20 +41,81 @@ import BaseLayout from '~/layouts/BaseLayout.astro'
   .back a { color: var(--muted); text-decoration: none; }
   .back a:hover { color: var(--ink); }
   .h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(1.75rem, 4vw, 2.5rem); margin: 0 0 0.5rem; line-height: 1.1; }
-  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 2rem; }
+  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 1rem; }
   .status.ready { color: var(--accent); }
-  .lede { font-size: 1rem; color: var(--muted); line-height: 1.6; max-width: 56ch; }
-  .placeholder { max-width: 60ch; }
-  .placeholder p { color: var(--muted); margin: 0 0 1rem; }
-  .io {
-    width: 100%;
-    padding: 1rem;
-    background: var(--paper-2);
-    border: 1px solid var(--rule);
-    color: var(--ink);
-    font-family: var(--font-mono);
-    font-size: 0.875rem;
-    resize: vertical;
-  }
-  .hint { font-size: 11px; color: var(--muted); margin-top: 0.75rem; }
+  .lede { font-size: 1rem; color: var(--muted); line-height: 1.6; max-width: 56ch; margin: 0 0 2rem; }
+  .lede code { font-family: var(--font-mono); font-size: 0.85em; color: var(--ink); }
+  .tool-ui { max-width: 64ch; display: flex; flex-direction: column; gap: 1.25rem; }
+  .row { display: flex; flex-direction: column; gap: 0.4rem; }
+  label { font-size: 0.8125rem; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.05em; }
+  .io { width: 100%; padding: 0.875rem 1rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink); font-family: var(--font-mono); font-size: 0.875rem; resize: vertical; }
+  .options-row { display: flex; flex-wrap: wrap; gap: 1rem; }
+  .opt { display: flex; flex-direction: column; gap: 0.4rem; flex: 1; min-width: 160px; }
+  .text-input, .select-input { padding: 0.5rem 0.75rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink); font-family: var(--font-mono); font-size: 0.8125rem; }
+  .btn-row { display: flex; gap: 0.5rem; }
+  .btn { padding: 0.5rem 1.25rem; background: var(--accent); border: none; color: #000; font-family: var(--font-mono); font-size: 0.8125rem; cursor: pointer; letter-spacing: 0.04em; }
+  .btn:hover { opacity: 0.85; }
+  .btn-copy { margin-top: 0.5rem; align-self: flex-start; padding: 0.4rem 0.875rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--muted); font-family: var(--font-mono); font-size: 0.75rem; cursor: pointer; }
+  .btn-copy:hover { color: var(--ink); }
+  .error-msg { color: #f87171; font-family: var(--font-mono); font-size: 0.8125rem; padding: 0.5rem 0.75rem; background: rgba(248,113,113,0.08); border-left: 2px solid #f87171; }
 </style>
+
+<script>
+  function toHex(bytes: Uint8Array): string {
+    return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function uuidV4(): string {
+    const b = new Uint8Array(16);
+    crypto.getRandomValues(b);
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    const h = toHex(b);
+    return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+  }
+
+  function uuidV7(): string {
+    const b = new Uint8Array(16);
+    crypto.getRandomValues(b);
+    const ts = BigInt(Date.now());
+    b[0] = Number((ts >> 40n) & 0xffn);
+    b[1] = Number((ts >> 32n) & 0xffn);
+    b[2] = Number((ts >> 24n) & 0xffn);
+    b[3] = Number((ts >> 16n) & 0xffn);
+    b[4] = Number((ts >> 8n) & 0xffn);
+    b[5] = Number(ts & 0xffn);
+    b[6] = (b[6] & 0x0f) | 0x70;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    const h = toHex(b);
+    return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+  }
+
+  document.getElementById('uuid-gen')!.addEventListener('click', () => {
+    const errEl = document.getElementById('uuid-error')!;
+    errEl.style.display = 'none';
+    const v = (document.getElementById('uuid-version') as HTMLSelectElement).value;
+    const n = Math.max(1, Math.min(500, parseInt((document.getElementById('uuid-count') as HTMLInputElement).value, 10) || 1));
+    try {
+      const out: string[] = [];
+      for (let i = 0; i < n; i++) out.push(v === 'v7' ? uuidV7() : uuidV4());
+      (document.getElementById('uuid-output') as HTMLTextAreaElement).value = out.join('\n');
+    } catch (e) {
+      errEl.textContent = 'Generation failed: ' + (e as Error).message;
+      errEl.style.display = 'block';
+    }
+  });
+
+  document.querySelectorAll('.btn-copy').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = (btn as HTMLButtonElement).dataset.copy!;
+      const val = (document.getElementById(id) as HTMLTextAreaElement).value;
+      navigator.clipboard.writeText(val).then(() => {
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+      });
+    });
+  });
+
+  // Auto-generate one on load
+  (document.getElementById('uuid-gen') as HTMLButtonElement).click();
+</script>

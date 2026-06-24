@@ -1,6 +1,7 @@
 ---
 import '~/styles/global.css'
 import { pricingUrl } from '@chirag127/astro-shell/pricing-url'
+import FamilySidebar from '@chirag127/astro-shell/components/FamilySidebar.astro'
 
 interface Props {
   title?: string
@@ -40,7 +41,27 @@ const pricingHref = pricingUrl('oriz-cipher-crypto-tools-app')
         <a href="https://account.oriz.in/sign-in">sign in</a>
       </nav>
     </header>
-    <main id="main"><slot /></main>
+    <div class="oriz-shell">
+      <FamilySidebar slug="oriz-cipher-crypto-tools-app" title="Crypto Tools">
+        <a slot="tools" href="/tools/hash/">Hashes (MD5 / SHA / etc.)</a>
+        <a slot="tools" href="/tools/aes/">AES-CBC / GCM / CTR</a>
+        <a slot="tools" href="/tools/chacha20/">ChaCha20</a>
+        <a slot="tools" href="/tools/rsa/">RSA generate / encrypt / sign</a>
+        <a slot="tools" href="/tools/hmac/">HMAC-SHA256 / 512</a>
+        <a slot="tools" href="/tools/bcrypt/">Password hash + verify</a>
+        <a slot="tools" href="/tools/uuid/">UUID generator</a>
+        <a slot="tools" href="/tools/cert/">X.509 / CSR decoder</a>
+        <a slot="tools" href="/tools/ssh-key/">SSH keypair generator</a>
+        <a slot="tools" href="/tools/base64/">Base64 encode / decode</a>
+        <a slot="tools" href="/tools/urlencode/">URL encode / decode</a>
+        <a slot="tools" href="/tools/jwt/">JWT decoder</a>
+        <a slot="tools" href="/tools/password/">Password generator</a>
+        <a slot="tools" href="/tools/qr/">QR code generator</a>
+        <a slot="tools" href="/tools/caesar/">Caesar cipher</a>
+        <a slot="tools" href="/tools/rot13/">ROT13</a>
+      </FamilySidebar>
+      <main id="main" class="oriz-main"><slot /></main>
+    </div>
     <footer class="site">
       <span>Oriz Crypto Tools · part of the <a href="https://oriz.in">oriz</a> family · runs in your browser</span>
       <span>

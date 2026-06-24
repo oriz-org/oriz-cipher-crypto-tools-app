@@ -1,0 +1,109 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro'
+---
+<BaseLayout title="ROT13 — Oriz Crypto Tools" description="ROT13 encode/decode — runs in your browser. Part of Oriz Crypto Tools.">
+  <article class="tool">
+    <p class="back mono"><a href="/">← all tools</a></p>
+    <h1 class="h1">ROT13</h1>
+    <p class="status mono ready">ready · v0.1</p>
+
+    <div class="tool-ui">
+      <div class="row">
+        <label for="rot13-input">Input</label>
+        <textarea id="rot13-input" class="io" placeholder="Type or paste text…" rows="5"></textarea>
+      </div>
+      <div class="btn-row">
+        <button id="rot13-run" class="btn">Apply ROT13</button>
+      </div>
+      <div class="row">
+        <label for="rot13-output">Output</label>
+        <textarea id="rot13-output" class="io" readonly rows="5" placeholder="Result appears here…"></textarea>
+        <button class="btn btn-copy" data-copy="rot13-output">Copy</button>
+      </div>
+      <div class="history-section">
+        <p class="hist-label mono">Recent history</p>
+        <ul id="rot13-history" class="history-list"></ul>
+      </div>
+    </div>
+  </article>
+</BaseLayout>
+
+<style>
+  .tool { padding-block: 0 2rem; }
+  .back { font-size: 12px; margin: 0 0 2rem; }
+  .back a { color: var(--muted); text-decoration: none; }
+  .back a:hover { color: var(--ink); }
+  .h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(1.75rem, 4vw, 2.5rem); margin: 0 0 0.5rem; line-height: 1.1; }
+  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 2rem; }
+  .status.ready { color: var(--accent); }
+  .tool-ui { max-width: 64ch; display: flex; flex-direction: column; gap: 1.25rem; }
+  .row { display: flex; flex-direction: column; gap: 0.4rem; }
+  label { font-size: 0.8125rem; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.05em; }
+  .io { width: 100%; padding: 0.875rem 1rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink); font-family: var(--font-mono); font-size: 0.875rem; resize: vertical; }
+  .io:focus { outline: 1px solid var(--accent); }
+  .btn-row { display: flex; gap: 0.5rem; }
+  .btn { padding: 0.5rem 1.25rem; background: var(--accent); border: none; color: #000; font-family: var(--font-mono); font-size: 0.8125rem; cursor: pointer; letter-spacing: 0.04em; }
+  .btn:hover { opacity: 0.85; }
+  .btn-copy { margin-top: 0.5rem; align-self: flex-start; padding: 0.4rem 0.875rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--muted); font-family: var(--font-mono); font-size: 0.75rem; cursor: pointer; }
+  .btn-copy:hover { color: var(--ink); }
+  .hist-label { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 0.5rem; }
+  .history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+  .history-list li { font-size: 0.8rem; color: var(--muted); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .history-list li:hover { color: var(--ink); }
+</style>
+
+<script>
+  const HIST_KEY = 'crypto_rot13_hist';
+  const MAX_HIST = 5;
+
+  function rot13(text: string): string {
+    return text.replace(/[a-zA-Z]/g, (ch) => {
+      const base = ch >= 'a' ? 97 : 65;
+      return String.fromCharCode(((ch.charCodeAt(0) - base + 13) % 26) + base);
+    });
+  }
+
+  function loadHistory(): string[] {
+    try { return JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); } catch { return []; }
+  }
+
+  function saveHistory(item: string) {
+    const h = [item, ...loadHistory().filter((x: string) => x !== item)].slice(0, MAX_HIST);
+    localStorage.setItem(HIST_KEY, JSON.stringify(h));
+    renderHistory();
+  }
+
+  function renderHistory() {
+    const ul = document.getElementById('rot13-history')!;
+    ul.innerHTML = '';
+    loadHistory().forEach((item: string) => {
+      const li = document.createElement('li');
+      li.textContent = item;
+      li.title = item;
+      li.addEventListener('click', () => {
+        (document.getElementById('rot13-input') as HTMLTextAreaElement).value = item;
+      });
+      ul.appendChild(li);
+    });
+  }
+
+  document.getElementById('rot13-run')!.addEventListener('click', () => {
+    const input = (document.getElementById('rot13-input') as HTMLTextAreaElement).value;
+    const result = rot13(input);
+    (document.getElementById('rot13-output') as HTMLTextAreaElement).value = result;
+    if (input.trim()) saveHistory(input.slice(0, 80));
+  });
+
+  document.querySelectorAll('.btn-copy').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = (btn as HTMLButtonElement).dataset.copy!;
+      const val = (document.getElementById(id) as HTMLTextAreaElement).value;
+      navigator.clipboard.writeText(val).then(() => {
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+      });
+    });
+  });
+
+  renderHistory();
+</script>

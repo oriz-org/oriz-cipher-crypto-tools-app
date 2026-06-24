@@ -1,0 +1,152 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro'
+---
+<BaseLayout title="QR Code Generator — Oriz Crypto Tools" description="Generate QR codes for any text or URL — runs in your browser. Part of Oriz Crypto Tools.">
+  <article class="tool">
+    <p class="back mono"><a href="/">← all tools</a></p>
+    <h1 class="h1">QR Code Generator</h1>
+    <p class="status mono ready">ready · v0.1</p>
+
+    <div class="tool-ui">
+      <div class="row">
+        <label for="qr-input">Text or URL</label>
+        <textarea id="qr-input" class="io" placeholder="Paste text or URL to encode as QR…" rows="3"></textarea>
+      </div>
+      <div class="options-row">
+        <div class="opt">
+          <label for="qr-size">Size (px)</label>
+          <input id="qr-size" type="number" min="64" max="512" value="256" class="num-input" />
+        </div>
+        <div class="opt">
+          <label for="qr-ecl">Error correction</label>
+          <select id="qr-ecl" class="select-input">
+            <option value="L">L (7%)</option>
+            <option value="M" selected>M (15%)</option>
+            <option value="Q">Q (25%)</option>
+            <option value="H">H (30%)</option>
+          </select>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button id="qr-generate" class="btn">Generate QR</button>
+      </div>
+      <div id="qr-error" class="error-msg" style="display:none;"></div>
+      <div id="qr-result" style="display:none; flex-direction:column; gap:1rem;">
+        <canvas id="qr-canvas" width="256" height="256" style="display:block; image-rendering:pixelated;"></canvas>
+        <div class="btn-row">
+          <button id="qr-download" class="btn btn-sec">Download PNG</button>
+        </div>
+      </div>
+      <div class="history-section">
+        <p class="hist-label mono">Recent history</p>
+        <ul id="qr-history" class="history-list"></ul>
+      </div>
+    </div>
+  </article>
+</BaseLayout>
+
+<style>
+  .tool { padding-block: 0 2rem; }
+  .back { font-size: 12px; margin: 0 0 2rem; }
+  .back a { color: var(--muted); text-decoration: none; }
+  .back a:hover { color: var(--ink); }
+  .h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(1.75rem, 4vw, 2.5rem); margin: 0 0 0.5rem; line-height: 1.1; }
+  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 2rem; }
+  .status.ready { color: var(--accent); }
+  .tool-ui { max-width: 64ch; display: flex; flex-direction: column; gap: 1.25rem; }
+  .row { display: flex; flex-direction: column; gap: 0.4rem; }
+  label { font-size: 0.8125rem; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.05em; }
+  .io { width: 100%; padding: 0.875rem 1rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink); font-family: var(--font-mono); font-size: 0.875rem; resize: vertical; }
+  .io:focus { outline: 1px solid var(--accent); }
+  .options-row { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+  .opt { display: flex; flex-direction: column; gap: 0.4rem; }
+  .num-input, .select-input { padding: 0.4rem 0.75rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink); font-family: var(--font-mono); font-size: 0.875rem; width: 7rem; }
+  .btn-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .btn { padding: 0.5rem 1.25rem; background: var(--accent); border: none; color: #000; font-family: var(--font-mono); font-size: 0.8125rem; cursor: pointer; letter-spacing: 0.04em; }
+  .btn:hover { opacity: 0.85; }
+  .btn-sec { background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink); }
+  .error-msg { color: #f87171; font-family: var(--font-mono); font-size: 0.8125rem; padding: 0.5rem 0.75rem; background: rgba(248,113,113,0.08); border-left: 2px solid #f87171; }
+  #qr-canvas { border: 1px solid var(--rule); background: #fff; }
+  .hist-label { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 0.5rem; }
+  .history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+  .history-list li { font-size: 0.8rem; color: var(--muted); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .history-list li:hover { color: var(--ink); }
+</style>
+
+<!-- Load qrcodejs from CDN (pure JS, no build step required) -->
+<script is:inline src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
+
+<script>
+  const HIST_KEY = 'crypto_qr_hist';
+  const MAX_HIST = 5;
+
+  function loadHistory(): string[] {
+    try { return JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); } catch { return []; }
+  }
+
+  function saveHistory(item: string) {
+    const h = [item, ...loadHistory().filter((x: string) => x !== item)].slice(0, MAX_HIST);
+    localStorage.setItem(HIST_KEY, JSON.stringify(h));
+    renderHistory();
+  }
+
+  function renderHistory() {
+    const ul = document.getElementById('qr-history')!;
+    ul.innerHTML = '';
+    loadHistory().forEach((item: string) => {
+      const li = document.createElement('li');
+      li.textContent = item;
+      li.title = item;
+      li.addEventListener('click', () => {
+        (document.getElementById('qr-input') as HTMLTextAreaElement).value = item;
+      });
+      ul.appendChild(li);
+    });
+  }
+
+  declare const QRCode: any;
+
+  document.getElementById('qr-generate')!.addEventListener('click', async () => {
+    const errEl = document.getElementById('qr-error')!;
+    const resultEl = document.getElementById('qr-result')!;
+    errEl.style.display = 'none';
+    resultEl.style.display = 'none';
+
+    const input = (document.getElementById('qr-input') as HTMLTextAreaElement).value.trim();
+    if (!input) {
+      errEl.textContent = 'Please enter text or a URL.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    const size = parseInt((document.getElementById('qr-size') as HTMLInputElement).value, 10) || 256;
+    const ecl = (document.getElementById('qr-ecl') as HTMLSelectElement).value as 'L' | 'M' | 'Q' | 'H';
+    const canvas = document.getElementById('qr-canvas') as HTMLCanvasElement;
+    canvas.width = size;
+    canvas.height = size;
+
+    try {
+      await QRCode.toCanvas(canvas, input, {
+        errorCorrectionLevel: ecl,
+        width: size,
+        margin: 2,
+        color: { dark: '#000000', light: '#ffffff' }
+      });
+      resultEl.style.display = 'flex';
+      saveHistory(input.slice(0, 80));
+    } catch (e) {
+      errEl.textContent = 'QR generation failed: ' + (e as Error).message;
+      errEl.style.display = 'block';
+    }
+  });
+
+  document.getElementById('qr-download')!.addEventListener('click', () => {
+    const canvas = document.getElementById('qr-canvas') as HTMLCanvasElement;
+    const link = document.createElement('a');
+    link.download = 'qrcode.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  });
+
+  renderHistory();
+</script>

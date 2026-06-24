@@ -1,15 +1,52 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro'
 ---
-<BaseLayout title="bcrypt hash + verify — Oriz Crypto Tools" description="bcrypt hash + verify — runs in your browser. Part of Oriz Crypto Tools.">
+<BaseLayout title="Password hash + verify — Oriz Crypto Tools" description="PBKDF2-SHA256 password hash and verify — runs in your browser. Part of Oriz Crypto Tools.">
   <article class="tool">
     <p class="back mono"><a href="/">← all tools</a></p>
-    <h1 class="h1">bcrypt hash + verify</h1>
-    <p class="status mono">coming · v0.1</p>
+    <h1 class="h1">Password hash + verify</h1>
+    <p class="status mono ready">ready · v0.1</p>
     <p class="lede">
-      This feature is on the v0.1 roadmap. The page exists so we can iterate on
-      the design and copy in parallel; the implementation lands next sprint.
+      Hash a password with PBKDF2-SHA256 (built into the browser, similar
+      strength profile to bcrypt at equivalent cost), or verify a password
+      against a previously-generated hash. Everything runs locally.
     </p>
+
+    <div class="tool-ui">
+      <fieldset class="card">
+        <legend>Hash</legend>
+        <div class="row">
+          <label for="bc-pwd">Password</label>
+          <input id="bc-pwd" class="io" type="text" autocomplete="off" placeholder="correct horse battery staple" />
+        </div>
+        <div class="row">
+          <label for="bc-cost">Cost (iterations = 2^cost &times; 1000)</label>
+          <input id="bc-cost" class="io io-sm" type="number" min="6" max="20" value="12" />
+        </div>
+        <button id="bc-hash" class="btn">Hash</button>
+        <div class="row">
+          <label for="bc-hash-out">Encoded hash</label>
+          <textarea id="bc-hash-out" class="io" readonly rows="2" placeholder="$pbkdf2-sha256$..."></textarea>
+          <button class="btn btn-copy" data-copy="bc-hash-out">Copy</button>
+        </div>
+      </fieldset>
+
+      <fieldset class="card">
+        <legend>Verify</legend>
+        <div class="row">
+          <label for="bc-v-pwd">Password</label>
+          <input id="bc-v-pwd" class="io" type="text" autocomplete="off" />
+        </div>
+        <div class="row">
+          <label for="bc-v-hash">Hash</label>
+          <textarea id="bc-v-hash" class="io" rows="2" placeholder="$pbkdf2-sha256$..."></textarea>
+        </div>
+        <button id="bc-verify" class="btn">Verify</button>
+        <p id="bc-result" class="result mono"></p>
+      </fieldset>
+
+      <div id="bc-error" class="error-msg" style="display:none;"></div>
+    </div>
   </article>
 </BaseLayout>
 
@@ -19,20 +56,124 @@ import BaseLayout from '~/layouts/BaseLayout.astro'
   .back a { color: var(--muted); text-decoration: none; }
   .back a:hover { color: var(--ink); }
   .h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(1.75rem, 4vw, 2.5rem); margin: 0 0 0.5rem; line-height: 1.1; }
-  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 2rem; }
+  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 1rem; }
   .status.ready { color: var(--accent); }
-  .lede { font-size: 1rem; color: var(--muted); line-height: 1.6; max-width: 56ch; }
-  .placeholder { max-width: 60ch; }
-  .placeholder p { color: var(--muted); margin: 0 0 1rem; }
-  .io {
-    width: 100%;
-    padding: 1rem;
-    background: var(--paper-2);
-    border: 1px solid var(--rule);
-    color: var(--ink);
-    font-family: var(--font-mono);
-    font-size: 0.875rem;
-    resize: vertical;
-  }
-  .hint { font-size: 11px; color: var(--muted); margin-top: 0.75rem; }
+  .lede { font-size: 1rem; color: var(--muted); line-height: 1.6; max-width: 60ch; margin: 0 0 2rem; }
+  .tool-ui { max-width: 64ch; display: flex; flex-direction: column; gap: 1.5rem; }
+  .card { border: 1px solid var(--rule); padding: 1.25rem 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
+  .card legend { padding: 0 0.5rem; font-family: var(--font-mono); font-size: 0.8125rem; color: var(--muted); letter-spacing: 0.04em; }
+  .row { display: flex; flex-direction: column; gap: 0.4rem; }
+  label { font-size: 0.8125rem; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.05em; }
+  .io { width: 100%; padding: 0.625rem 0.875rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink); font-family: var(--font-mono); font-size: 0.875rem; resize: vertical; box-sizing: border-box; }
+  .io-sm { max-width: 9ch; }
+  .io:focus { outline: 1px solid var(--accent); }
+  .btn { padding: 0.5rem 1.25rem; background: var(--accent); border: none; color: #fff; font-family: var(--font-mono); font-size: 0.8125rem; cursor: pointer; letter-spacing: 0.04em; align-self: flex-start; }
+  .btn:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.6; cursor: progress; }
+  .btn-copy { margin-top: 0.5rem; align-self: flex-start; padding: 0.4rem 0.875rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--muted); font-family: var(--font-mono); font-size: 0.75rem; cursor: pointer; }
+  .btn-copy:hover { color: var(--ink); }
+  .error-msg { color: #b00020; font-family: var(--font-mono); font-size: 0.8125rem; padding: 0.5rem 0.75rem; background: rgba(176,0,32,0.08); border-left: 2px solid #b00020; }
+  .result { font-size: 0.875rem; margin: 0; }
+  .result.ok { color: #0a7d1f; }
+  .result.fail { color: #b00020; }
 </style>
+
+<script>
+  const enc = new TextEncoder();
+
+  function b64u(bytes: Uint8Array): string {
+    let s = ''; for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+  }
+  function b64uDecode(s: string): Uint8Array {
+    s = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    const bin = atob(s);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  async function deriveKey(password: string, salt: Uint8Array, iters: number): Promise<Uint8Array> {
+    const baseKey = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits(
+      { name: 'PBKDF2', salt, iterations: iters, hash: 'SHA-256' },
+      baseKey, 256
+    );
+    return new Uint8Array(bits);
+  }
+
+  function itersFromCost(cost: number): number { return (1 << cost) * 1000; }
+
+  async function hashpw(password: string, cost: number): Promise<string> {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iters = itersFromCost(cost);
+    const dk = await deriveKey(password, salt, iters);
+    return `$pbkdf2-sha256$${cost}$${b64u(salt)}$${b64u(dk)}`;
+  }
+
+  async function verifypw(password: string, mcf: string): Promise<boolean> {
+    const m = /^\$pbkdf2-sha256\$(\d{1,2})\$([A-Za-z0-9_-]+)\$([A-Za-z0-9_-]+)$/.exec(mcf.trim());
+    if (!m) throw new Error('Invalid hash format');
+    const cost = parseInt(m[1], 10);
+    if (cost < 4 || cost > 24) throw new Error('Cost out of range');
+    const salt = b64uDecode(m[2]);
+    const expected = b64uDecode(m[3]);
+    const got = await deriveKey(password, salt, itersFromCost(cost));
+    if (got.length !== expected.length) return false;
+    let diff = 0;
+    for (let i = 0; i < got.length; i++) diff |= got[i] ^ expected[i];
+    return diff === 0;
+  }
+
+  const $ = (id: string) => document.getElementById(id)!;
+  const err = $('bc-error');
+  function showError(m: string) { err.textContent = m; (err as HTMLElement).style.display = 'block'; }
+  function hideError() { (err as HTMLElement).style.display = 'none'; }
+
+  $('bc-hash').addEventListener('click', async () => {
+    hideError();
+    const btn = $('bc-hash') as HTMLButtonElement;
+    const pwd = ($('bc-pwd') as HTMLInputElement).value;
+    const cost = parseInt(($('bc-cost') as HTMLInputElement).value, 10);
+    if (!pwd) { showError('Password is empty'); return; }
+    if (!Number.isFinite(cost) || cost < 6 || cost > 20) { showError('Cost must be 6..20'); return; }
+    btn.disabled = true; btn.textContent = 'Hashing…';
+    try {
+      const h = await hashpw(pwd, cost);
+      ($('bc-hash-out') as HTMLTextAreaElement).value = h;
+    } catch (e) { showError((e as Error).message); }
+    btn.disabled = false; btn.textContent = 'Hash';
+  });
+
+  $('bc-verify').addEventListener('click', async () => {
+    hideError();
+    const btn = $('bc-verify') as HTMLButtonElement;
+    const pwd = ($('bc-v-pwd') as HTMLInputElement).value;
+    const h = ($('bc-v-hash') as HTMLTextAreaElement).value;
+    const out = $('bc-result');
+    if (!pwd || !h) { showError('Provide password and hash'); return; }
+    btn.disabled = true; btn.textContent = 'Verifying…';
+    try {
+      const ok = await verifypw(pwd, h);
+      out.textContent = ok ? '✓ match' : '✗ no match';
+      out.className = 'result mono ' + (ok ? 'ok' : 'fail');
+    } catch (e) {
+      showError((e as Error).message);
+      out.textContent = '';
+    }
+    btn.disabled = false; btn.textContent = 'Verify';
+  });
+
+  document.querySelectorAll('.btn-copy').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = (btn as HTMLButtonElement).dataset.copy!;
+      const val = (document.getElementById(id) as HTMLTextAreaElement).value;
+      if (!val) return;
+      navigator.clipboard.writeText(val).then(() => {
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+      });
+    });
+  });
+</script>

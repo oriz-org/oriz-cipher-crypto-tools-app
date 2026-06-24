@@ -1,15 +1,62 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro'
 ---
-<BaseLayout title="RSA generate / encrypt / sign — Oriz Crypto Tools" description="RSA generate / encrypt / sign — runs in your browser. Part of Oriz Crypto Tools.">
+<BaseLayout title="RSA generate / encrypt / sign — Oriz Crypto Tools" description="RSA-OAEP encryption and RSASSA-PKCS1-v1_5 signing — runs in your browser. Part of Oriz Crypto Tools.">
   <article class="tool">
     <p class="back mono"><a href="/">← all tools</a></p>
     <h1 class="h1">RSA generate / encrypt / sign</h1>
-    <p class="status mono">coming · v0.1</p>
-    <p class="lede">
-      This feature is on the v0.1 roadmap. The page exists so we can iterate on
-      the design and copy in parallel; the implementation lands next sprint.
-    </p>
+    <p class="status mono ready">ready · v0.1</p>
+    <p class="lede">Generates an RSA-OAEP keypair via Web Crypto. Use the public key to encrypt or verify; the private key never leaves the page.</p>
+
+    <div class="tool-ui">
+      <div class="options-row">
+        <div class="opt">
+          <label for="rsa-bits">Key size</label>
+          <select id="rsa-bits" class="select-input">
+            <option value="2048" selected>2048</option>
+            <option value="3072">3072</option>
+            <option value="4096">4096</option>
+          </select>
+        </div>
+        <div class="opt">
+          <label for="rsa-mode">Mode</label>
+          <select id="rsa-mode" class="select-input">
+            <option value="encrypt" selected>Encrypt (RSA-OAEP)</option>
+            <option value="decrypt">Decrypt (RSA-OAEP)</option>
+            <option value="sign">Sign (PKCS1-v1_5 / SHA-256)</option>
+            <option value="verify">Verify (PKCS1-v1_5 / SHA-256)</option>
+          </select>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button id="rsa-genkey" class="btn">Generate keypair</button>
+      </div>
+      <div class="row">
+        <label for="rsa-pub">Public key (PEM, SPKI)</label>
+        <textarea id="rsa-pub" class="io" rows="4" placeholder="-----BEGIN PUBLIC KEY-----…"></textarea>
+      </div>
+      <div class="row">
+        <label for="rsa-priv">Private key (PEM, PKCS8) — kept only in this browser</label>
+        <textarea id="rsa-priv" class="io" rows="5" placeholder="-----BEGIN PRIVATE KEY-----…"></textarea>
+      </div>
+      <div class="row">
+        <label for="rsa-input">Input</label>
+        <textarea id="rsa-input" class="io" rows="3" placeholder="Plaintext (encrypt/sign) or base64 ciphertext/signature (decrypt/verify)"></textarea>
+      </div>
+      <div class="row" id="rsa-sig-row" style="display:none;">
+        <label for="rsa-sig">Signature (base64) — for verify</label>
+        <textarea id="rsa-sig" class="io" rows="3" placeholder="base64-encoded signature"></textarea>
+      </div>
+      <div class="btn-row">
+        <button id="rsa-run" class="btn">Run</button>
+      </div>
+      <div id="rsa-error" class="error-msg" style="display:none;"></div>
+      <div class="row">
+        <label for="rsa-output">Output</label>
+        <textarea id="rsa-output" class="io" readonly rows="4" placeholder="Result appears here…"></textarea>
+        <button class="btn btn-copy" data-copy="rsa-output">Copy</button>
+      </div>
+    </div>
   </article>
 </BaseLayout>
 
@@ -19,20 +66,121 @@ import BaseLayout from '~/layouts/BaseLayout.astro'
   .back a { color: var(--muted); text-decoration: none; }
   .back a:hover { color: var(--ink); }
   .h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(1.75rem, 4vw, 2.5rem); margin: 0 0 0.5rem; line-height: 1.1; }
-  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 2rem; }
+  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 1rem; }
   .status.ready { color: var(--accent); }
-  .lede { font-size: 1rem; color: var(--muted); line-height: 1.6; max-width: 56ch; }
-  .placeholder { max-width: 60ch; }
-  .placeholder p { color: var(--muted); margin: 0 0 1rem; }
-  .io {
-    width: 100%;
-    padding: 1rem;
-    background: var(--paper-2);
-    border: 1px solid var(--rule);
-    color: var(--ink);
-    font-family: var(--font-mono);
-    font-size: 0.875rem;
-    resize: vertical;
-  }
-  .hint { font-size: 11px; color: var(--muted); margin-top: 0.75rem; }
+  .lede { font-size: 1rem; color: var(--muted); line-height: 1.6; max-width: 56ch; margin: 0 0 2rem; }
+  .tool-ui { max-width: 64ch; display: flex; flex-direction: column; gap: 1.25rem; }
+  .row { display: flex; flex-direction: column; gap: 0.4rem; }
+  label { font-size: 0.8125rem; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.05em; }
+  .io { width: 100%; padding: 0.875rem 1rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink); font-family: var(--font-mono); font-size: 0.8125rem; resize: vertical; }
+  .options-row { display: flex; flex-wrap: wrap; gap: 1rem; }
+  .opt { display: flex; flex-direction: column; gap: 0.4rem; flex: 1; min-width: 180px; }
+  .select-input { padding: 0.5rem 0.75rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink); font-family: var(--font-mono); font-size: 0.875rem; }
+  .btn-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .btn { padding: 0.5rem 1.25rem; background: var(--accent); border: none; color: #000; font-family: var(--font-mono); font-size: 0.8125rem; cursor: pointer; letter-spacing: 0.04em; }
+  .btn:hover { opacity: 0.85; }
+  .btn-copy { margin-top: 0.5rem; align-self: flex-start; padding: 0.4rem 0.875rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--muted); font-family: var(--font-mono); font-size: 0.75rem; cursor: pointer; }
+  .error-msg { color: #f87171; font-family: var(--font-mono); font-size: 0.8125rem; padding: 0.5rem 0.75rem; background: rgba(248,113,113,0.08); border-left: 2px solid #f87171; }
 </style>
+
+<script>
+  function toBase64(buf: ArrayBuffer): string {
+    return btoa(String.fromCharCode(...new Uint8Array(buf)));
+  }
+  function fromBase64(s: string): Uint8Array {
+    return new Uint8Array(atob(s.replace(/\s/g, '')).split('').map((c) => c.charCodeAt(0)));
+  }
+  function toPem(buf: ArrayBuffer, label: string): string {
+    const b64 = toBase64(buf);
+    return `-----BEGIN ${label}-----\n${b64.match(/.{1,64}/g)!.join('\n')}\n-----END ${label}-----`;
+  }
+  function fromPem(pem: string): Uint8Array {
+    const body = pem.replace(/-----[^-]+-----/g, '').replace(/\s/g, '');
+    return fromBase64(body);
+  }
+
+  function modeAlgo(mode: string): { name: string; hash: string } {
+    return mode === 'encrypt' || mode === 'decrypt'
+      ? { name: 'RSA-OAEP', hash: 'SHA-256' }
+      : { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' };
+  }
+
+  document.getElementById('rsa-mode')!.addEventListener('change', () => {
+    const mode = (document.getElementById('rsa-mode') as HTMLSelectElement).value;
+    (document.getElementById('rsa-sig-row') as HTMLDivElement).style.display = mode === 'verify' ? 'flex' : 'none';
+  });
+
+  document.getElementById('rsa-genkey')!.addEventListener('click', async () => {
+    const errEl = document.getElementById('rsa-error')!;
+    errEl.style.display = 'none';
+    const bits = parseInt((document.getElementById('rsa-bits') as HTMLSelectElement).value, 10);
+    const mode = (document.getElementById('rsa-mode') as HTMLSelectElement).value;
+    const algo = modeAlgo(mode);
+    const usages: KeyUsage[] = algo.name === 'RSA-OAEP' ? ['encrypt', 'decrypt'] : ['sign', 'verify'];
+    try {
+      const kp = await crypto.subtle.generateKey(
+        { name: algo.name, modulusLength: bits, publicExponent: new Uint8Array([1, 0, 1]), hash: algo.hash },
+        true,
+        usages
+      ) as CryptoKeyPair;
+      const pubBuf = await crypto.subtle.exportKey('spki', kp.publicKey);
+      const privBuf = await crypto.subtle.exportKey('pkcs8', kp.privateKey);
+      (document.getElementById('rsa-pub') as HTMLTextAreaElement).value = toPem(pubBuf, 'PUBLIC KEY');
+      (document.getElementById('rsa-priv') as HTMLTextAreaElement).value = toPem(privBuf, 'PRIVATE KEY');
+    } catch (e) {
+      errEl.textContent = 'Generation failed: ' + (e as Error).message;
+      errEl.style.display = 'block';
+    }
+  });
+
+  document.getElementById('rsa-run')!.addEventListener('click', async () => {
+    const errEl = document.getElementById('rsa-error')!;
+    errEl.style.display = 'none';
+    const mode = (document.getElementById('rsa-mode') as HTMLSelectElement).value;
+    const algo = modeAlgo(mode);
+    const input = (document.getElementById('rsa-input') as HTMLTextAreaElement).value;
+    const pubPem = (document.getElementById('rsa-pub') as HTMLTextAreaElement).value.trim();
+    const privPem = (document.getElementById('rsa-priv') as HTMLTextAreaElement).value.trim();
+    const sig = (document.getElementById('rsa-sig') as HTMLTextAreaElement).value.trim();
+
+    try {
+      const enc = new TextEncoder();
+      if (mode === 'encrypt') {
+        if (!pubPem) throw new Error('Public key required');
+        const key = await crypto.subtle.importKey('spki', fromPem(pubPem), { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+        const ct = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, key, enc.encode(input));
+        (document.getElementById('rsa-output') as HTMLTextAreaElement).value = toBase64(ct);
+      } else if (mode === 'decrypt') {
+        if (!privPem) throw new Error('Private key required');
+        const key = await crypto.subtle.importKey('pkcs8', fromPem(privPem), { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['decrypt']);
+        const pt = await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, key, fromBase64(input));
+        (document.getElementById('rsa-output') as HTMLTextAreaElement).value = new TextDecoder().decode(pt);
+      } else if (mode === 'sign') {
+        if (!privPem) throw new Error('Private key required');
+        const key = await crypto.subtle.importKey('pkcs8', fromPem(privPem), { name: algo.name, hash: algo.hash }, false, ['sign']);
+        const s = await crypto.subtle.sign(algo.name, key, enc.encode(input));
+        (document.getElementById('rsa-output') as HTMLTextAreaElement).value = toBase64(s);
+      } else {
+        if (!pubPem) throw new Error('Public key required');
+        if (!sig) throw new Error('Signature required');
+        const key = await crypto.subtle.importKey('spki', fromPem(pubPem), { name: algo.name, hash: algo.hash }, false, ['verify']);
+        const ok = await crypto.subtle.verify(algo.name, key, fromBase64(sig), enc.encode(input));
+        (document.getElementById('rsa-output') as HTMLTextAreaElement).value = ok ? 'VALID — signature matches.' : 'INVALID — signature does not match.';
+      }
+    } catch (e) {
+      errEl.textContent = mode + ' failed: ' + (e as Error).message;
+      errEl.style.display = 'block';
+    }
+  });
+
+  document.querySelectorAll('.btn-copy').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = (btn as HTMLButtonElement).dataset.copy!;
+      const val = (document.getElementById(id) as HTMLTextAreaElement).value;
+      navigator.clipboard.writeText(val).then(() => {
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+      });
+    });
+  });
+</script>

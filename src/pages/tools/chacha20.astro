@@ -1,15 +1,51 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro'
 ---
-<BaseLayout title="ChaCha20 — Oriz Crypto Tools" description="ChaCha20 — runs in your browser. Part of Oriz Crypto Tools.">
+<BaseLayout title="ChaCha20 — Oriz Crypto Tools" description="ChaCha20 stream-cipher encryption and decryption in your browser. Part of Oriz Crypto Tools.">
   <article class="tool">
     <p class="back mono"><a href="/">← all tools</a></p>
     <h1 class="h1">ChaCha20</h1>
-    <p class="status mono">coming · v0.1</p>
+    <p class="status mono ready">ready · v0.1</p>
     <p class="lede">
-      This feature is on the v0.1 roadmap. The page exists so we can iterate on
-      the design and copy in parallel; the implementation lands next sprint.
+      Encrypt or decrypt with ChaCha20 (RFC 8439, 20-round, 32-byte key,
+      12-byte nonce, 32-bit block counter). Output is hex; symmetric — running
+      it twice with the same key/nonce returns the original text.
     </p>
+
+    <div class="tool-ui">
+      <div class="row">
+        <label for="cc-key">Key (32 bytes, hex — 64 chars). Leave empty to auto-generate.</label>
+        <input id="cc-key" class="io" type="text" autocomplete="off" placeholder="auto-generated on encrypt" />
+        <button id="cc-keygen" class="btn btn-sec">Generate random key</button>
+      </div>
+      <div class="row">
+        <label for="cc-nonce">Nonce (12 bytes, hex — 24 chars). Leave empty to auto-generate.</label>
+        <input id="cc-nonce" class="io" type="text" autocomplete="off" placeholder="auto-generated on encrypt" />
+      </div>
+      <div class="row">
+        <label for="cc-mode">Input type</label>
+        <select id="cc-mode" class="io io-sm">
+          <option value="utf8">Plain text (UTF-8) → hex</option>
+          <option value="hex">Hex → hex</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="cc-input">Input</label>
+        <textarea id="cc-input" class="io" rows="5"></textarea>
+      </div>
+      <div class="btn-row">
+        <button id="cc-run" class="btn">Encrypt / Decrypt</button>
+      </div>
+      <div id="cc-error" class="error-msg" style="display:none;"></div>
+      <div class="row">
+        <label for="cc-output">Output (hex; choose mode below to view as text)</label>
+        <textarea id="cc-output" class="io" rows="5" readonly></textarea>
+        <div class="btn-row">
+          <button class="btn btn-copy" data-copy="cc-output">Copy hex</button>
+          <button id="cc-as-text" class="btn btn-sec">View as UTF-8</button>
+        </div>
+      </div>
+    </div>
   </article>
 </BaseLayout>
 
@@ -19,20 +55,143 @@ import BaseLayout from '~/layouts/BaseLayout.astro'
   .back a { color: var(--muted); text-decoration: none; }
   .back a:hover { color: var(--ink); }
   .h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(1.75rem, 4vw, 2.5rem); margin: 0 0 0.5rem; line-height: 1.1; }
-  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 2rem; }
+  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 1rem; }
   .status.ready { color: var(--accent); }
-  .lede { font-size: 1rem; color: var(--muted); line-height: 1.6; max-width: 56ch; }
-  .placeholder { max-width: 60ch; }
-  .placeholder p { color: var(--muted); margin: 0 0 1rem; }
-  .io {
-    width: 100%;
-    padding: 1rem;
-    background: var(--paper-2);
-    border: 1px solid var(--rule);
-    color: var(--ink);
-    font-family: var(--font-mono);
-    font-size: 0.875rem;
-    resize: vertical;
-  }
-  .hint { font-size: 11px; color: var(--muted); margin-top: 0.75rem; }
+  .lede { font-size: 1rem; color: var(--muted); line-height: 1.6; max-width: 60ch; margin: 0 0 2rem; }
+  .tool-ui { max-width: 72ch; display: flex; flex-direction: column; gap: 1rem; }
+  .row { display: flex; flex-direction: column; gap: 0.4rem; }
+  label { font-size: 0.8125rem; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.05em; }
+  .io { width: 100%; padding: 0.625rem 0.875rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink); font-family: var(--font-mono); font-size: 0.875rem; resize: vertical; box-sizing: border-box; }
+  .io-sm { max-width: 24ch; }
+  .io:focus { outline: 1px solid var(--accent); }
+  .btn-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .btn { padding: 0.5rem 1.25rem; background: var(--accent); border: none; color: #fff; font-family: var(--font-mono); font-size: 0.8125rem; cursor: pointer; letter-spacing: 0.04em; align-self: flex-start; }
+  .btn:hover { opacity: 0.85; }
+  .btn-sec { background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink); }
+  .btn-copy { padding: 0.4rem 0.875rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--muted); font-family: var(--font-mono); font-size: 0.75rem; cursor: pointer; }
+  .btn-copy:hover { color: var(--ink); }
+  .error-msg { color: #b00020; font-family: var(--font-mono); font-size: 0.8125rem; padding: 0.5rem 0.75rem; background: rgba(176,0,32,0.08); border-left: 2px solid #b00020; }
 </style>
+
+<script>
+  // RFC 8439 ChaCha20
+  function rotl(a: number, b: number) { return ((a << b) | (a >>> (32 - b))) >>> 0; }
+
+  function quarterround(s: Uint32Array, a: number, b: number, c: number, d: number) {
+    s[a] = (s[a] + s[b]) >>> 0; s[d] = rotl(s[d] ^ s[a], 16);
+    s[c] = (s[c] + s[d]) >>> 0; s[b] = rotl(s[b] ^ s[c], 12);
+    s[a] = (s[a] + s[b]) >>> 0; s[d] = rotl(s[d] ^ s[a], 8);
+    s[c] = (s[c] + s[d]) >>> 0; s[b] = rotl(s[b] ^ s[c], 7);
+  }
+
+  function block(key: Uint32Array, counter: number, nonce: Uint32Array): Uint8Array {
+    const s = new Uint32Array(16);
+    s[0] = 0x61707865; s[1] = 0x3320646e; s[2] = 0x79622d32; s[3] = 0x6b206574;
+    for (let i = 0; i < 8; i++) s[4 + i] = key[i];
+    s[12] = counter >>> 0;
+    s[13] = nonce[0]; s[14] = nonce[1]; s[15] = nonce[2];
+    const w = new Uint32Array(s);
+    for (let i = 0; i < 10; i++) {
+      quarterround(w, 0, 4, 8, 12); quarterround(w, 1, 5, 9, 13);
+      quarterround(w, 2, 6, 10, 14); quarterround(w, 3, 7, 11, 15);
+      quarterround(w, 0, 5, 10, 15); quarterround(w, 1, 6, 11, 12);
+      quarterround(w, 2, 7, 8, 13); quarterround(w, 3, 4, 9, 14);
+    }
+    for (let i = 0; i < 16; i++) w[i] = (w[i] + s[i]) >>> 0;
+    const out = new Uint8Array(64);
+    for (let i = 0; i < 16; i++) {
+      out[i * 4] = w[i] & 0xff;
+      out[i * 4 + 1] = (w[i] >>> 8) & 0xff;
+      out[i * 4 + 2] = (w[i] >>> 16) & 0xff;
+      out[i * 4 + 3] = (w[i] >>> 24) & 0xff;
+    }
+    return out;
+  }
+
+  function le32(b: Uint8Array, off: number): number {
+    return (b[off] | (b[off + 1] << 8) | (b[off + 2] << 16) | (b[off + 3] << 24)) >>> 0;
+  }
+
+  function chacha20(keyBytes: Uint8Array, nonceBytes: Uint8Array, input: Uint8Array): Uint8Array {
+    if (keyBytes.length !== 32) throw new Error('Key must be 32 bytes');
+    if (nonceBytes.length !== 12) throw new Error('Nonce must be 12 bytes');
+    const key = new Uint32Array(8);
+    for (let i = 0; i < 8; i++) key[i] = le32(keyBytes, i * 4);
+    const nonce = new Uint32Array(3);
+    for (let i = 0; i < 3; i++) nonce[i] = le32(nonceBytes, i * 4);
+    const out = new Uint8Array(input.length);
+    let counter = 1; // RFC 8439 starts at 1
+    for (let off = 0; off < input.length; off += 64) {
+      const ks = block(key, counter++, nonce);
+      const len = Math.min(64, input.length - off);
+      for (let j = 0; j < len; j++) out[off + j] = input[off + j] ^ ks[j];
+    }
+    return out;
+  }
+
+  // --- hex helpers ---
+  function hexToBytes(h: string): Uint8Array {
+    h = h.replace(/\s+/g, '');
+    if (h.length % 2 !== 0) throw new Error('Hex length must be even');
+    if (!/^[0-9a-fA-F]*$/.test(h)) throw new Error('Invalid hex characters');
+    const out = new Uint8Array(h.length / 2);
+    for (let i = 0; i < out.length; i++) out[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
+    return out;
+  }
+  function bytesToHex(b: Uint8Array): string {
+    let s = ''; for (let i = 0; i < b.length; i++) s += b[i].toString(16).padStart(2, '0');
+    return s;
+  }
+
+  const $ = (id: string) => document.getElementById(id)!;
+  const err = $('cc-error');
+  function showError(m: string) { err.textContent = m; (err as HTMLElement).style.display = 'block'; }
+  function hideError() { (err as HTMLElement).style.display = 'none'; }
+
+  $('cc-keygen').addEventListener('click', () => {
+    const k = crypto.getRandomValues(new Uint8Array(32));
+    ($('cc-key') as HTMLInputElement).value = bytesToHex(k);
+  });
+
+  $('cc-run').addEventListener('click', () => {
+    hideError();
+    try {
+      let keyHex = ($('cc-key') as HTMLInputElement).value.trim();
+      let nonceHex = ($('cc-nonce') as HTMLInputElement).value.trim();
+      if (!keyHex) { keyHex = bytesToHex(crypto.getRandomValues(new Uint8Array(32))); ($('cc-key') as HTMLInputElement).value = keyHex; }
+      if (!nonceHex) { nonceHex = bytesToHex(crypto.getRandomValues(new Uint8Array(12))); ($('cc-nonce') as HTMLInputElement).value = nonceHex; }
+      const key = hexToBytes(keyHex);
+      const nonce = hexToBytes(nonceHex);
+      const mode = ($('cc-mode') as HTMLSelectElement).value;
+      const raw = ($('cc-input') as HTMLTextAreaElement).value;
+      const input = mode === 'hex' ? hexToBytes(raw) : new TextEncoder().encode(raw);
+      const out = chacha20(key, nonce, input);
+      ($('cc-output') as HTMLTextAreaElement).value = bytesToHex(out);
+    } catch (e) {
+      showError((e as Error).message);
+    }
+  });
+
+  $('cc-as-text').addEventListener('click', () => {
+    hideError();
+    try {
+      const hex = ($('cc-output') as HTMLTextAreaElement).value;
+      const bytes = hexToBytes(hex);
+      ($('cc-output') as HTMLTextAreaElement).value = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    } catch (e) {
+      showError('Cannot view as text: ' + (e as Error).message);
+    }
+  });
+
+  document.querySelectorAll('.btn-copy').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = (btn as HTMLButtonElement).dataset.copy!;
+      const val = (document.getElementById(id) as HTMLTextAreaElement).value;
+      if (!val) return;
+      navigator.clipboard.writeText(val).then(() => {
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Copy hex'; }, 1500);
+      });
+    });
+  });
+</script>

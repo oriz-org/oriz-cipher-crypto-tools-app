@@ -1,0 +1,132 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro'
+---
+<BaseLayout title="Base64 Encode / Decode — Oriz Crypto Tools" description="Base64 encode and decode — runs in your browser. Part of Oriz Crypto Tools.">
+  <article class="tool">
+    <p class="back mono"><a href="/">← all tools</a></p>
+    <h1 class="h1">Base64 Encode / Decode</h1>
+    <p class="status mono ready">ready · v0.1</p>
+
+    <div class="tool-ui">
+      <div class="row">
+        <label for="b64-input">Input</label>
+        <textarea id="b64-input" class="io" placeholder="Type or paste text…" rows="5"></textarea>
+      </div>
+      <div class="btn-row">
+        <button id="b64-encode" class="btn">Encode</button>
+        <button id="b64-decode" class="btn btn-sec">Decode</button>
+      </div>
+      <div id="b64-error" class="error-msg" style="display:none;"></div>
+      <div class="row">
+        <label for="b64-output">Output</label>
+        <textarea id="b64-output" class="io" readonly rows="5" placeholder="Result appears here…"></textarea>
+        <button class="btn btn-copy" data-copy="b64-output">Copy</button>
+      </div>
+      <div class="history-section">
+        <p class="hist-label mono">Recent history</p>
+        <ul id="b64-history" class="history-list"></ul>
+      </div>
+    </div>
+  </article>
+</BaseLayout>
+
+<style>
+  .tool { padding-block: 0 2rem; }
+  .back { font-size: 12px; margin: 0 0 2rem; }
+  .back a { color: var(--muted); text-decoration: none; }
+  .back a:hover { color: var(--ink); }
+  .h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(1.75rem, 4vw, 2.5rem); margin: 0 0 0.5rem; line-height: 1.1; }
+  .status { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 2rem; }
+  .status.ready { color: var(--accent); }
+  .tool-ui { max-width: 64ch; display: flex; flex-direction: column; gap: 1.25rem; }
+  .row { display: flex; flex-direction: column; gap: 0.4rem; }
+  label { font-size: 0.8125rem; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.05em; }
+  .io { width: 100%; padding: 0.875rem 1rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink); font-family: var(--font-mono); font-size: 0.875rem; resize: vertical; }
+  .io:focus { outline: 1px solid var(--accent); }
+  .btn-row { display: flex; gap: 0.5rem; }
+  .btn { padding: 0.5rem 1.25rem; background: var(--accent); border: none; color: #000; font-family: var(--font-mono); font-size: 0.8125rem; cursor: pointer; letter-spacing: 0.04em; }
+  .btn:hover { opacity: 0.85; }
+  .btn-sec { background: var(--paper-2); border: 1px solid var(--rule); color: var(--ink); }
+  .btn-copy { margin-top: 0.5rem; align-self: flex-start; padding: 0.4rem 0.875rem; background: var(--paper-2); border: 1px solid var(--rule); color: var(--muted); font-family: var(--font-mono); font-size: 0.75rem; cursor: pointer; }
+  .btn-copy:hover { color: var(--ink); }
+  .error-msg { color: #f87171; font-family: var(--font-mono); font-size: 0.8125rem; padding: 0.5rem 0.75rem; background: rgba(248,113,113,0.08); border-left: 2px solid #f87171; }
+  .hist-label { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 0.5rem; }
+  .history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+  .history-list li { font-size: 0.8rem; color: var(--muted); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .history-list li:hover { color: var(--ink); }
+</style>
+
+<script>
+  const HIST_KEY = 'crypto_b64_hist';
+  const MAX_HIST = 5;
+
+  function loadHistory(): string[] {
+    try { return JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); } catch { return []; }
+  }
+
+  function saveHistory(item: string) {
+    const h = [item, ...loadHistory().filter((x: string) => x !== item)].slice(0, MAX_HIST);
+    localStorage.setItem(HIST_KEY, JSON.stringify(h));
+    renderHistory();
+  }
+
+  function renderHistory() {
+    const ul = document.getElementById('b64-history')!;
+    ul.innerHTML = '';
+    loadHistory().forEach((item: string) => {
+      const li = document.createElement('li');
+      li.textContent = item;
+      li.title = item;
+      li.addEventListener('click', () => {
+        (document.getElementById('b64-input') as HTMLTextAreaElement).value = item;
+      });
+      ul.appendChild(li);
+    });
+  }
+
+  function showError(msg: string) {
+    const el = document.getElementById('b64-error')!;
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+  function hideError() {
+    document.getElementById('b64-error')!.style.display = 'none';
+  }
+
+  document.getElementById('b64-encode')!.addEventListener('click', () => {
+    hideError();
+    const input = (document.getElementById('b64-input') as HTMLTextAreaElement).value;
+    try {
+      const result = btoa(unescape(encodeURIComponent(input)));
+      (document.getElementById('b64-output') as HTMLTextAreaElement).value = result;
+      if (input.trim()) saveHistory(input.slice(0, 80));
+    } catch (e) {
+      showError('Encode failed: ' + (e as Error).message);
+    }
+  });
+
+  document.getElementById('b64-decode')!.addEventListener('click', () => {
+    hideError();
+    const input = (document.getElementById('b64-input') as HTMLTextAreaElement).value;
+    try {
+      const result = decodeURIComponent(escape(atob(input.trim())));
+      (document.getElementById('b64-output') as HTMLTextAreaElement).value = result;
+      if (input.trim()) saveHistory(input.slice(0, 80));
+    } catch (e) {
+      showError('Decode failed — invalid Base64 input.');
+    }
+  });
+
+  document.querySelectorAll('.btn-copy').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = (btn as HTMLButtonElement).dataset.copy!;
+      const val = (document.getElementById(id) as HTMLTextAreaElement).value;
+      navigator.clipboard.writeText(val).then(() => {
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+      });
+    });
+  });
+
+  renderHistory();
+</script>
